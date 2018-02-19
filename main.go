@@ -7,11 +7,13 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/nseps/godag"
+	"github.com/ogier/pflag"
 )
 
 type Data struct {
@@ -21,34 +23,89 @@ type Data struct {
 
 func main() {
 
+	pflag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "* Usage of %s:\n", os.Args[0])
+		pflag.PrintDefaults()
+	}
+
+	libPath := pflag.StringP("libPath", "L", "", "A colon separated list of paths to look for libraries. If set this would be the only path")
+	appLibPath := pflag.StringP("appendlibPath", "a", "", "A colon separated list of paths to append in default path")
+	preLibPath := pflag.StringP("prependlibPath", "p", "", "A colon separated list of paths to prepend in default path")
+	ldConf := pflag.String("ldConf", "/etc/ld.so.conf", "Parse ld config file and append to the default path")
+
+	trace := pflag.Bool("trace", false, "Run binary with LD_TRACE_LOADED_OBJECTS=1 set. This is equivalent to ldd <target>. No need for ldd binary")
+	tree := pflag.Bool("tree", false, "Get a nice dependency tree")
+	export := pflag.String("export", "", "Export directory path. It will copy everything it finds, including target binary, to dir")
+
+	pflag.Parse()
+
 	if len(os.Args) < 2 {
 		log.Fatalf("Error: Path to binary is missing\n")
 	}
 	target := os.Args[1]
 
 	if _, err := os.Stat(target); err != nil {
-		log.Fatalf("Cannot stat target binary: %v\n", err)
+		log.Fatalf("Error: Cannot stat target binary: %v\n", err)
 	}
 
 	file, err := elf.Open(target)
 	if err != nil {
-		log.Fatalf("Cannot read elf target: %v\n", err)
+		log.Fatalf("Error: Cannot read elf target: %v\n", err)
 	}
-	// default lib path
-	path := []string{"/lib", "/usr/lib"}
-	// prepend /lib64 if is 64bit bin
-	if file.Class == elf.ELFCLASS64 {
-		path = append([]string{"/lib64"}, path...)
+	defer file.Close()
+
+	// simulate ldd <target>
+	if *trace {
+		cmd := exec.Command(target)
+		cmd.Env = []string{"LD_TRACE_LOADED_OBJECTS=1"}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Fatalf("Error: Could not execute target %s: %v\n", target, err)
+		}
+		// what's our target
+		fmt.Printf("Target: %s, Class: %s\n", target, file.Class)
+		// print ldd output
+		fmt.Print(string(out))
+		return
 	}
 
-	pathLdConf, err := parseLdConf("/etc/ld.so.conf")
-	if err != nil {
-		log.Fatalf("Parsing ldconfig failed: %v\n", err)
+	path := []string{}
+	if *libPath == "" {
+		// prepend to path
+		if *preLibPath != "" {
+			path = strings.Split(*preLibPath, ":")
+		}
+		// binary path
+		binPath := filepath.Dir(target)
+		path = append(path, binPath)
+		// prepend /lib64 if is 64bit bin
+		if file.Class == elf.ELFCLASS64 {
+			path = append(path, "/lib64")
+		}
+		// default lib path
+		path = append(path, "/lib", "/usr/lib")
+		// append to path
+		if *appLibPath != "" {
+			path = append(strings.Split(*appLibPath, ":"), path...)
+		}
+		// parse ld conf
+		if *ldConf != "" {
+			pathLdConf, err := parseLdConf("/etc/ld.so.conf")
+			if err != nil {
+				// no need to die on this
+				fmt.Fprintf(os.Stderr, "Warning: Parsing ldconfig failed: %v\n", err)
+			} else {
+				path = append(path, pathLdConf...)
+			}
+		}
+	} else {
+		// there shall be only one path!
+		path = strings.Split(*libPath, ":")
 	}
-	path = append(path, pathLdConf...)
 
-	binPath := filepath.Dir(target)
-	path = append(path, binPath)
+	fmt.Println("Path lookup order:")
+	fmt.Println(strings.Join(path, "\n"))
+	fmt.Println()
 
 	d := dag.New()
 
@@ -58,25 +115,48 @@ func main() {
 	deps := map[string]*Data{}
 
 	root.Walk(dag.WalkDepthFirst, func(node *dag.Node, depth int) error {
+		// get data from graph
 		data, ok := node.Value.(*Data)
 		if !ok {
 			log.Fatalf("Cannot get value from node")
 		}
-
+		// add to
 		if _, inMap := deps[data.Name]; !inMap {
 			deps[data.Name] = data
+		}
+		// print tree
+		if *tree {
+			for i := 0; i < depth; i = i + 1 {
+				fmt.Printf("  |")
+			}
+			fmt.Printf("-%s\n", data.Name)
 		}
 		return nil
 	})
 
-	os.Mkdir("out", 0775)
-	for _, dep := range deps {
-		fmt.Printf("%s => %s\n", dep.Name, dep.Path)
-		if err := copyFile(dep.Path, "out/"+dep.Name); err != nil {
-			log.Fatalf("Cannot copy file %s: %v\n", dep.Path, err)
+	if *export != "" {
+		os.Mkdir(*export, 0775)
+		for _, dep := range deps {
+			if dep.Path == "" {
+				fmt.Printf("Warning: File not found for lib %s\n", dep.Name)
+				continue
+			}
+			fmt.Printf("Copy %s: %s => %s\n", dep.Name, dep.Path, *export)
+			if err := copyFile(dep.Path, filepath.Join(*export, dep.Name)); err != nil {
+				log.Fatalf("Cannot copy file %s: %v\n", dep.Path, err)
+			}
 		}
+		return
 	}
 
+	if !*tree {
+		// what's our target
+		fmt.Printf("Target: %s, Class: %s\n", target, file.Class)
+		for _, dep := range deps {
+			// just print the unsorted map
+			fmt.Printf("  %s => %s\n", dep.Name, dep.Path)
+		}
+	}
 }
 
 func copyFile(src, dst string) error {
