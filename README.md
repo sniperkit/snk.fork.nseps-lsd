@@ -45,7 +45,7 @@ Target: /bin/bash, Class: ELFCLASS64
   libdl.so.2 => /lib/x86_64-linux-gnu/libdl.so.2
 ```
 
-Or simulate ldd by adding the `--trace` flag
+### Or simulate ldd by adding the `--trace` flag
 
 `lsd /bin/bash --trace`
 
@@ -58,7 +58,7 @@ Target: /bin/bash, Class: ELFCLASS64
         /lib64/ld-linux-x86-64.so.2 (0x00007f9c35863000)
 ```
 
-You can have your dependecies in a nice tree. Have fun with huge binaries.
+### You can have your dependecies in a nice tree. Have fun with huge binaries.
 
 `lsd /bin/bash --tree`
 
@@ -87,7 +87,7 @@ Path lookup order:
   |  |-ld-linux-x86-64.so.2
 ```
 
-Export to directory
+### Export to directory
 
 `lsd /bin/bash --export=out`
 

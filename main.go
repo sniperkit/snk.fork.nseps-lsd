@@ -1,3 +1,8 @@
+// Author: Nikolas Sepos <nikolas.sepos@gmail.com>
+//
+// SPDX-License-Identifier: MIT
+//
+
 package main
 
 import (
@@ -16,10 +21,13 @@ import (
 	"github.com/ogier/pflag"
 )
 
+// Data is exported so i can use data as variable name
 type Data struct {
 	Name string
 	Path string
 }
+
+var ldPath []string
 
 func main() {
 
@@ -38,16 +46,16 @@ func main() {
 	export := pflag.String("export", "", "Export directory path. It will copy everything it finds, including target binary, to dir")
 
 	pflag.Parse()
-
+	// we want 1 argument. the target binary
 	if len(os.Args) < 2 {
 		log.Fatalf("Error: Path to binary is missing\n")
 	}
 	target := os.Args[1]
-
+	// chack if exists
 	if _, err := os.Stat(target); err != nil {
 		log.Fatalf("Error: Cannot stat target binary: %v\n", err)
 	}
-
+	// parse elf
 	file, err := elf.Open(target)
 	if err != nil {
 		log.Fatalf("Error: Cannot read elf target: %v\n", err)
@@ -69,24 +77,23 @@ func main() {
 		return
 	}
 
-	path := []string{}
 	if *libPath == "" {
 		// prepend to path
 		if *preLibPath != "" {
-			path = strings.Split(*preLibPath, ":")
+			ldPath = strings.Split(*preLibPath, ":")
 		}
 		// binary path
 		binPath := filepath.Dir(target)
-		path = append(path, binPath)
+		ldPath = append(ldPath, binPath)
 		// prepend /lib64 if is 64bit bin
 		if file.Class == elf.ELFCLASS64 {
-			path = append(path, "/lib64")
+			ldPath = append(ldPath, "/lib64")
 		}
 		// default lib path
-		path = append(path, "/lib", "/usr/lib")
+		ldPath = append(ldPath, "/lib", "/usr/lib")
 		// append to path
 		if *appLibPath != "" {
-			path = append(strings.Split(*appLibPath, ":"), path...)
+			ldPath = append(strings.Split(*appLibPath, ":"), ldPath...)
 		}
 		// parse ld conf
 		if *ldConf != "" {
@@ -95,21 +102,24 @@ func main() {
 				// no need to die on this
 				fmt.Fprintf(os.Stderr, "Warning: Parsing ldconfig failed: %v\n", err)
 			} else {
-				path = append(path, pathLdConf...)
+				ldPath = append(ldPath, pathLdConf...)
 			}
 		}
 	} else {
 		// there shall be only one path!
-		path = strings.Split(*libPath, ":")
+		ldPath = strings.Split(*libPath, ":")
 	}
 
 	fmt.Println("Path lookup order:")
-	fmt.Println(strings.Join(path, "\n"))
+	fmt.Println(strings.Join(ldPath, "\n"))
 	fmt.Println()
 
 	d := dag.New()
 
-	err = getTree(target, filepath.Base(target), &path, d)
+	err = getTree(target, filepath.Base(target), d)
+	if err != nil {
+		log.Fatalf("Tree: %v\n", err)
+	}
 
 	root := d.Roots()[0]
 	deps := map[string]*Data{}
@@ -120,12 +130,16 @@ func main() {
 		if !ok {
 			log.Fatalf("Cannot get value from node")
 		}
-		// add to
+		// TODO: Expose the underlaying map from godag
+		//       to not have to walk and get unique keys.
+		//       We know that the map has already all we need.
 		if _, inMap := deps[data.Name]; !inMap {
 			deps[data.Name] = data
 		}
-		// print tree
+		// if tree should be surrounding the Walk function
+		// after the above is solved.
 		if *tree {
+			// print tree
 			for i := 0; i < depth; i = i + 1 {
 				fmt.Printf("  |")
 			}
@@ -184,7 +198,7 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
-func getTree(path, name string, ldPath *[]string, d *dag.Dag) error {
+func getTree(path, name string, d *dag.Dag) error {
 
 	deps, err := getLibDeps(path)
 	if err != nil {
@@ -197,11 +211,11 @@ func getTree(path, name string, ldPath *[]string, d *dag.Dag) error {
 	})
 
 	for _, lib := range deps {
-		libFile, err := findInPath(lib, *ldPath)
+		libFile, err := findInPath(lib, ldPath)
 		if err != nil {
 			return err
 		}
-
+		// we could not find the lib
 		if libFile == "" {
 			// just add the node
 			d.AddNode(lib, &Data{
@@ -210,7 +224,7 @@ func getTree(path, name string, ldPath *[]string, d *dag.Dag) error {
 			})
 		} else {
 			// recurse
-			err := getTree(libFile, lib, ldPath, d)
+			err := getTree(libFile, lib, d)
 			if err != nil {
 				return err
 			}
@@ -298,12 +312,4 @@ func parseLdConf(path string) ([]string, error) {
 		ret = append(ret, filepath.Clean(line))
 	}
 	return ret, nil
-}
-
-func genString(i int, c byte) string {
-	b := make([]byte, i)
-	for j := range b {
-		b[j] = c
-	}
-	return string(b)
 }
