@@ -18,6 +18,8 @@ lsd is tool that helps you resolve dynamic linking dependencies for binaries and
 
 In the future it might strip down libraries and reassemble everything in runable package just to have a single "static" binary
 
+This tool parses the ELF data of the binary for information and uses it's own library lookup path. The output can differ between `lsd <target>` and `lsd <target> --trace`
+
 ## How to use
 
 `lsd /bin/bash`

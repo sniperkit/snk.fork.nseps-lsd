@@ -90,7 +90,7 @@ func main() {
 		}
 		// parse ld conf
 		if *ldConf != "" {
-			pathLdConf, err := parseLdConf("/etc/ld.so.conf")
+			pathLdConf, err := parseLdConf(*ldConf)
 			if err != nil {
 				// no need to die on this
 				fmt.Fprintf(os.Stderr, "Warning: Parsing ldconfig failed: %v\n", err)
