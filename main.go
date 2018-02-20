@@ -10,7 +10,6 @@ import (
 	"debug/elf"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,17 +47,17 @@ func main() {
 	pflag.Parse()
 	// we want 1 argument. the target binary
 	if len(os.Args) < 2 {
-		log.Fatalf("Error: Path to binary is missing\n")
+		die(fmt.Errorf("path to binary is missing"))
 	}
 	target := os.Args[1]
 	// chack if exists
 	if _, err := os.Stat(target); err != nil {
-		log.Fatalf("Error: Cannot stat target binary: %v\n", err)
+		die(fmt.Errorf("cannot stat target binary: %v", err))
 	}
 	// parse elf
 	file, err := elf.Open(target)
 	if err != nil {
-		log.Fatalf("Error: Cannot read elf target: %v\n", err)
+		die(fmt.Errorf("cannot read elf target: %v", err))
 	}
 	defer file.Close()
 
@@ -68,7 +67,7 @@ func main() {
 		cmd.Env = []string{"LD_TRACE_LOADED_OBJECTS=1"}
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			log.Fatalf("Error: Could not execute target %s: %v\n", target, err)
+			die(fmt.Errorf("could not execute target %s: %v", target, err))
 		}
 		// what's our target
 		fmt.Printf("Target: %s, Class: %s\n", target, file.Class)
@@ -100,7 +99,7 @@ func main() {
 			pathLdConf, err := parseLdConf(*ldConf)
 			if err != nil {
 				// no need to die on this
-				fmt.Fprintf(os.Stderr, "Warning: Parsing ldconfig failed: %v\n", err)
+				fmt.Printf("Warning: Parsing ldconfig failed: %v\n", err)
 			} else {
 				ldPath = append(ldPath, pathLdConf...)
 			}
@@ -118,7 +117,7 @@ func main() {
 
 	err = getTree(target, filepath.Base(target), d)
 	if err != nil {
-		log.Fatalf("Tree: %v\n", err)
+		die(fmt.Errorf("failed to get tree: %v", err))
 	}
 
 	root := d.Roots()[0]
@@ -128,7 +127,7 @@ func main() {
 		// get data from graph
 		data, ok := node.Value.(*Data)
 		if !ok {
-			log.Fatalf("Cannot get value from node")
+			die(fmt.Errorf("Cannot get value from node"))
 		}
 		// TODO: Expose the underlaying map from godag
 		//       to not have to walk and get unique keys.
@@ -157,7 +156,7 @@ func main() {
 			}
 			fmt.Printf("Copy %s: %s => %s\n", dep.Name, dep.Path, *export)
 			if err := copyFile(dep.Path, filepath.Join(*export, dep.Name)); err != nil {
-				log.Fatalf("Cannot copy file %s: %v\n", dep.Path, err)
+				die(fmt.Errorf("cannot copy file %s: %v", dep.Path, err))
 			}
 		}
 		return
@@ -171,6 +170,13 @@ func main() {
 			fmt.Printf("  %s => %s\n", dep.Name, dep.Path)
 		}
 	}
+}
+
+func die(err error) {
+	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	pflag.Usage()
+	os.Exit(1)
+
 }
 
 func copyFile(src, dst string) error {
