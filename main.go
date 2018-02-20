@@ -17,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/nseps/godag"
-	"github.com/ogier/pflag"
+	"github.com/spf13/pflag"
 )
 
 // Data is exported so i can use data as variable name
