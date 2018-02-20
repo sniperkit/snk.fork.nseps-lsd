@@ -92,7 +92,7 @@ func main() {
 		ldPath = append(ldPath, "/lib", "/usr/lib")
 		// append to path
 		if *appLibPath != "" {
-			ldPath = append(strings.Split(*appLibPath, ":"), ldPath...)
+			ldPath = append(ldPath, strings.Split(*appLibPath, ":")...)
 		}
 		// parse ld conf
 		if *ldConf != "" {
