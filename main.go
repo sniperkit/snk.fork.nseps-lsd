@@ -1,3 +1,8 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 // Author: Nikolas Sepos <nikolas.sepos@gmail.com>
 //
 // SPDX-License-Identifier: MIT
